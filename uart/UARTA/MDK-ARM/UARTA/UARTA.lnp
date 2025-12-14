@@ -1,0 +1,24 @@
+--cpu Cortex-M3
+"uarta\startup_stm32f103xb.o"
+"uarta\main.o"
+"uarta\gpio.o"
+"uarta\usart.o"
+"uarta\stm32f1xx_it.o"
+"uarta\stm32f1xx_hal_msp.o"
+"uarta\stm32f1xx_hal_gpio_ex.o"
+"uarta\stm32f1xx_hal_uart.o"
+"uarta\stm32f1xx_hal.o"
+"uarta\stm32f1xx_hal_rcc.o"
+"uarta\stm32f1xx_hal_rcc_ex.o"
+"uarta\stm32f1xx_hal_gpio.o"
+"uarta\stm32f1xx_hal_dma.o"
+"uarta\stm32f1xx_hal_cortex.o"
+"uarta\stm32f1xx_hal_pwr.o"
+"uarta\stm32f1xx_hal_flash.o"
+"uarta\stm32f1xx_hal_flash_ex.o"
+"uarta\stm32f1xx_hal_exti.o"
+"uarta\system_stm32f1xx.o"
+--strict --scatter "UARTA\UARTA.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "UARTA.map" -o UARTA\UARTA.axf
