@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "tim.h"
+#include "can.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -44,7 +44,14 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint16_t angle = 0; // ÂÆö‰πâÂΩìÂâçËßíÂ∫¶ÂèòÈáè
+typedef struct {
+    uint16_t ecd;          // ª˙–µΩ«∂» (0~8191)
+    int16_t  speed_rpm;    // ◊™ÀŸ (RPM)
+    int16_t  given_current; //  µº ◊™æÿµÁ¡˜
+    uint8_t  temperate;    // Œ¬∂»
+} motor_measure_t;
+
+motor_measure_t motor_chassis[1]; // ∂®“Â ID Œ™ 1 µƒµÁª˙ ˝æ›±‰¡ø
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,51 +94,54 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM3_Init();
+  MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
-// ÂêØÂä® TIM3 ÁöÑ ÈÄöÈÅì1 (PA6)
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); 
+CAN_FilterTypeDef can_filter;
 
-// ÂàùÂßãÂåñËàµÊú∫‰ΩçÁΩÆÂà∞ 0 Â∫¶ (0.5ms)
-// ÂÖ¨ÂºèÔºö0.5ms = 500us„ÄÇÊ≠§Êó∂ timer 1tick = 1us„ÄÇ
-__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 500);
+can_filter.FilterBank = 0;                       //  π”√π˝¬À∆˜ 0
+can_filter.FilterMode = CAN_FILTERMODE_IDMASK;    // —⁄¬Îƒ£ Ω
+can_filter.FilterScale = CAN_FILTERSCALE_32BIT;
+can_filter.FilterIdHigh = 0x0000;                // …Ë÷√Œ™ 0 ±Ì æΩ” ’À˘”– ID
+can_filter.FilterIdLow = 0x0000;
+can_filter.FilterMaskIdHigh = 0x0000;
+can_filter.FilterMaskIdLow = 0x0000;
+can_filter.FilterFIFOAssignment = CAN_RX_FIFO0;  // Ω” ’ ˝æ›∑≈»Î FIFO0
+can_filter.FilterActivation = ENABLE;            // º§ªÓπ˝¬À∆˜
+can_filter.SlaveStartFilterBank = 14;
+
+if (HAL_CAN_ConfigFilter(&hcan1, &can_filter) != HAL_OK) {
+    Error_Handler();
+}
+
+HAL_CAN_Start(&hcan1); // ∆Ù∂Ø CAN Õ‚…Ë
+HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING); // ø™∆ÙΩ” ’÷–∂œ
   /* USER CODE END 2 */
-                    
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  int angle = 0;
-	while (1)
-  {// 1. Ê£ÄÊµãÊåâÈîÆ (PB0 ‰ΩéÁîµÂπ≥ÊúâÊïà)
-  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_RESET)
-  {
-      HAL_Delay(20); // ËΩØ‰ª∂Ê∂àÊäñ
+  while (1)
+  {CAN_TxHeaderTypeDef tx_header;
+    uint8_t tx_data[8];
+    uint32_t pTxMailbox;
 
-      // ÂÜçÊ¨°Á°ÆËÆ§ÊåâÈîÆÁä∂ÊÄÅ
-      if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_RESET)
-      {
-          // 2. Á≠âÂæÖÊùæÊâã (Ê≠ªÂæ™ÁéØÁ≠âÂæÖÁõ¥Âà∞ÂèòÂõûÈ´òÁîµÂπ≥)
-          while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) == GPIO_PIN_RESET);
+    // …Ë÷√∑¢ÀÕ±®ŒƒÕ∑≤ø
+    tx_header.StdId = 0x200;      // M3508 ID 1-4 µƒøÿ÷∆±Í ∂∑˚
+    tx_header.IDE = CAN_ID_STD;   // ±Í◊º÷°
+    tx_header.RTR = CAN_RTR_DATA; //  ˝æ›÷°
+    tx_header.DLC = 8;            // ≥§∂» 8 ◊÷Ω⁄
 
-          // 3. ÊîπÂèòËßíÂ∫¶
-          angle += 45; // ÊØèÊ¨°ÊåâÈîÆÂ¢ûÂä† 45 Â∫¶ (‰Ω†ÂèØ‰ª•ÊîπÊàê 30 Êàñ 90)
-          
-          if (angle > 180) // Ë∂ÖËøá 180 Â∫¶ÂΩíÈõ∂
-          {
-              angle = 0;
-          }
+    // …Ë∂®µÁ¡˜£∫ºŸ…Ë∏¯ ID 1 µÁª˙∑¢ÀÕ 1000 µƒµÁ¡˜ (∑∂Œß -16384 µΩ 16384)
+    int16_t test_current = 1000; 
+    tx_data[0] = (test_current >> 8) & 0xFF; // ∏ﬂ 8 Œª
+    tx_data[1] = test_current & 0xFF;        // µÕ 8 Œª
+    
+    // ID 2, 3, 4 µƒµÁ¡˜œ»…ËŒ™ 0
+    tx_data[2] = tx_data[3] = tx_data[4] = tx_data[5] = tx_data[6] = tx_data[7] = 0;
 
-          // 4. ËÆ°ÁÆóÂπ∂ËÆæÁΩÆ PWM Âç†Á©∫ÊØî (Ê†∏ÂøÉÂÖ¨Âºè)
-          // ËøôÈáåÁöÑÂÖ¨ÂºèÂü∫‰∫é‰Ω†ÁöÑÈÄªËæëÔºö
-          // (htim3.Init.Period + 1) ÊòØ 20000
-          // (20000 / 1800) ‚âà 11.11 (ÊØèÂ∫¶ÁöÑËÆ°Êï∞ÂÄº)
-          // (20000 / 40) = 500 (0Â∫¶ÁöÑÂü∫ÂáÜÂÄº 0.5ms)
-          
-          uint16_t pwm_value = angle * (htim3.Init.Period + 1) / 1800 + (htim3.Init.Period + 1) / 40;
-          
-          // ËÆæÁΩÆ TIM3 ÈÄöÈÅì1 ÁöÑÊØîËæÉÂÄº
-          __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pwm_value);
-      }
-  }
+    // ∑¢ÀÕ±®Œƒ
+    HAL_CAN_AddTxMessage(&hcan1, &tx_header, tx_data, &pTxMailbox);
+
+    HAL_Delay(10); // º‰∏Ù 10ms ∑¢ÀÕ“ª¥Œ
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -148,16 +158,23 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 168;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -169,17 +186,30 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
     Error_Handler();
   }
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+    CAN_RxHeaderTypeDef rx_header;
+    uint8_t rx_data[8];
 
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, rx_data) == HAL_OK) {
+        // ID 1 µÁª˙µƒ∑¥¿°±®Œƒ ID  « 0x201
+        if (rx_header.StdId == 0x201) {
+            motor_chassis[0].ecd = (rx_data[0] << 8) | rx_data[1];
+            motor_chassis[0].speed_rpm = (int16_t)(rx_data[2] << 8 | rx_data[3]);
+            motor_chassis[0].given_current = (int16_t)(rx_data[4] << 8 | rx_data[5]);
+            motor_chassis[0].temperate = rx_data[6];
+        }
+    }
+}
 /* USER CODE END 4 */
 
 /**
